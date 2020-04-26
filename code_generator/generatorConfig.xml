@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<generatorConfiguration>
+    <jdbcConnection>
+        <property name="host">127.0.0.1</property>
+        <property name="database">money_note</property>
+        <property name="port">3306</property>
+        <property name="user">root</property>
+        <property name="password">123456</property>
+        <property name="charset">UTF-8</property>
+    </jdbcConnection>
+
+<!--   <jdbcConnection>-->
+<!--        <property name="host">192.168.222.19</property>-->
+<!--        <property name="database">land</property>-->
+<!--        <property name="port">3306</property>-->
+<!--        <property name="user">root</property>-->
+<!--        <property name="password">Mysql@123</property>-->
+<!--        <property name="charset">UTF-8</property>-->
+<!--    </jdbcConnection>-->
+
+<!--     targetPath 文件生成路径-->
+    <pythonGenerator targetPath="com.liz.money_note.domain"></pythonGenerator>
+    <daoGenerator targetPath="com.liz.money_note.dao"></daoGenerator>
+    <serviceGenerator targetPath="com.liz.money_note.service"></serviceGenerator>
+    <controllerGenerator targetPath="com.liz.money_note.controller"> </controllerGenerator>
+
+<!--     name：数据库表明，alias：生成的 class 类名-->
+<!--    <table name="t_info_car" alias="InfoCar" ></table>-->
+<!--    <table name="t_info_cultural" alias="InfoCultural" ></table>-->
+<!--    <table name="t_info_education" alias="InfoEducation" ></table>-->
+<!--    <table name="t_info_entertainment" alias="InfoEntertainment" ></table>-->
+<!--    <table name="t_info_finance" alias="InfoFinance" ></table>-->
+<!--    <table name="t_info_food" alias="InfoFood" ></table>-->
+<!--    <table name="t_info_hotel" alias="InfoHotel" ></table>-->
+<!--    <table name="t_info_house" alias="InfoHouse" ></table>-->
+<!--    <table name="t_info_infrastructure" alias="InfoInfrastructure" ></table>-->
+<!--    <table name="t_info_life" alias="InfoLife" ></table>-->
+<!--    <table name="t_info_medical_care" alias="InfoMedicalCare" ></table>-->
+<!--    <table name="t_info_shopping" alias="InfoShopping" ></table>-->
+<!--    <table name="t_info_travel" alias="InfoTravel" ></table>-->
+<!--    <table name="t_information_type" alias="InformationType" ></table>-->
+
+<!--    <table name="t_area" alias="area" />-->
+<!--    <table name="t_officeBuilding_info" alias="OfficeBuildingInfo" />-->
+<!--    <table name="remise_notice_sell_detail" alias="RemiseNoticeSellDetail" />-->
+
+<!--    <table name="overseas_land" alias="overseasLand" ></table>-->
+<!--    <table name="overseas_land_detail" alias="overseasLandDetail" ></table>-->
+<!--    <table name="second_land" alias="secondLand" ></table>-->
+<!--    <table name="second_land_detail" alias="secondLandDetail" ></table> -->
+
+    <table name="t_login_log" alias="LoginLog" />
+
+
+</generatorConfiguration>

@@ -1,0 +1,386 @@
+# -*- coding:utf-8 -*-
+# 涉及的三方库：DBUtils
+# pip3 install DBUtils
+# 原文链接
+# https://www.cnblogs.com/rcddup/p/6881944.html
+
+
+import json
+from DBUtils.PooledDB import PooledDB
+# 引入同一目录下的py文件（来自指定py文件下，导入该文件下的某个类）
+from crud_module.common_utils.ConfigurationParser import ConfigurationParser
+from crud_module.common_utils.QueryUtil import QueryUtil
+from crud_module.common_utils.Logger import Logger
+from crud_module.common_utils.Page import Page
+
+global PRIMARY_KEY_DICT_LIST
+PRIMARY_KEY_DICT_LIST = []
+
+
+class BaseDao(object):
+    """
+    Python 操作数据库基类方法
+    - @Author RuanCheng
+    - @UpdateDate 2017/5/17
+    """
+    __logger = None
+    __parser = None  # 获取 xml 文件信息对象
+    __poolConfigDict = None  # 从 xml 中获取的数据库连接信息的字典对象
+    __pool = None  # 数据库连接池
+    __obj = None  # 实体类
+    __className = None  # 实体类类名
+    __tableName = None  # 实体类对应的数据库名
+    __primaryKeyDict = {}  # 数据库表的主键字典对象
+    __columnList = []
+
+    def __init__(self, obj=None):
+        """
+        初始化方法：
+        - 1.初始化配置信息
+        - 2.初始化 className
+        - 3.初始化数据库表的主键
+        """
+        if not obj:
+            raise Exception(
+                "BaseDao is missing a required parameter --> obj(class object).\nFor example [super().__init__(User)].")
+        else:
+            self.__logger = Logger(self.__class__)  # 初始化日志对象
+            self.__logger.start()  # 开启日志
+
+            if not self.__parser:  # 解析 xml
+                self.__parser = ConfigurationParser()
+                self.__poolConfigDict = self.__parser.parseConfiguration()
+                print(self.__poolConfigDict)
+
+                # 用于传递到数据库的准备会话，如 [”set name UTF-8″] 。
+                # setsession = "set name UTF-8"
+                self.__pool = PooledDB(**self.__poolConfigDict)
+
+            # 初始化参数
+            if (self.__obj == None) or (self.__obj != obj):
+                global PRIMARY_KEY_DICT_LIST
+                if (not PRIMARY_KEY_DICT_LIST) or (PRIMARY_KEY_DICT_LIST.count == 0) or len(PRIMARY_KEY_DICT_LIST) == 0:
+                    self.__init_primary_key_dict_list()  # 初始化主键字典列表
+                self.__init_params(obj)  # 初始化参数
+                self.__init_columns()  # 初始化字段列表
+                self.__logger.end()  # 结束日志
+        pass
+
+    ################################################# 外部调用方法 #################################################
+    def selectAll(self):
+        """
+        查询所有
+        """
+        sql = QueryUtil.queryAll(self.__tableName, self.__columnList)
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeQuery(sql)
+
+    def selectByPrimaryKey(self, value):
+        """
+        按主键查询
+        - @Param: value 主键
+        """
+        if (not value) or (value == ""):
+            raise Exception("selectByPrimaryKey() is missing a required paramter 'value'.")
+        sql = QueryUtil.queryByPrimaryKey(self.__primaryKeyDict, value, self.__columnList)
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        objectList  = self.__executeQuery(sql)
+        if objectList and len(objectList) ==  1:
+            return objectList[0]
+        return objectList
+
+    def selectCount(self, obj):
+        """
+        查询总记录数
+        """
+        sql = QueryUtil.queryCount(self.__tableName, json.loads(str(obj)))
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__execute(sql)[0][0]
+
+
+    def selectByProperties(self, obj):
+        """
+        条件查询
+        """
+        sql = QueryUtil.selectByProperties(self.__tableName, json.loads(str(obj)))
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeQuery(sql, logEnable=True)
+
+    def selectAllByPage(self, page=None):
+        """
+        分页查询
+        """
+        if (not page) or (not isinstance(page, Page)):
+            raise Exception("Paramter [page] is not correct. Parameter [page] must a Page object instance. ")
+        sql = QueryUtil.queryAllByPage(self.__tableName, self.__columnList, page)
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeQuery(sql, logEnable=True)
+
+    def insert(self, obj):
+        """
+        新增
+        - @Param: obj 实体对象
+        """
+        if (not obj) or (obj == ""):
+            raise Exception("insert() is missing a required paramter 'obj'.")
+        sql = QueryUtil.queryInsert(self.__primaryKeyDict, json.loads(str(obj)))
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeUpdate(sql)
+
+    def batch_insert(self, objList):
+        """
+        批量插入新增
+        - @Param: obj 实体对象的集合
+        """
+        if (not objList) or (objList == "") or (not isinstance(objList, list)):
+            raise Exception("batch_insert() is missing a required paramter 'objList'.")
+        count = 0
+        for obj in objList:
+            if self.insert(obj) > 0:
+                count +=1
+        return count
+
+    def delete(self, obj=None):
+        """
+        根据实体删除
+        - @Param: obj 实体对象
+        """
+        if (not obj) or (obj == ""):
+            raise Exception("delete() is missing a required paramter 'obj'.")
+        sql = QueryUtil.queryDelete(self.__primaryKeyDict, json.loads(str(obj)))
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeUpdate(sql)
+
+    def deleteByPrimaryKey(self, value=None):
+        """
+        根据主键删除
+        - @Param: value 主键
+        """
+        if (not value) or (value == ""):
+            raise Exception("deleteByPrimaryKey() is missing a required paramter 'value'.")
+        sql = QueryUtil.queryDeleteByPrimaryKey(self.__primaryKeyDict, value)
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeUpdate(sql)
+
+    def updateByPrimaryKey(self, obj=None):
+        """
+        根据主键更新
+        - @Param: obj 实体对象
+        """
+        if (not obj) or (obj == ""):
+            raise Exception("updateByPrimaryKey() is missing a required paramter 'obj'.")
+        sql = QueryUtil.queryUpdateByPrimaryKey(self.__primaryKeyDict, json.loads(str(obj)))
+        if (not sql) or sql == "" or len(sql) == 0 or (not isinstance(sql, str)):
+            self.__logger.outMsg("Generate sql failed!!!!")
+            return 0
+        return self.__executeUpdate(sql)
+
+    def execute_sql(self, sql="", logEnable=True):
+        return self.__execute(sql)
+
+    ################################################# 内部调用方法（以“__”开头和结尾的方法） #################################################
+    def __execute(self, sql="", logEnable=True):
+        """
+        执行 SQL 语句(用于内部初始化参数使用)：
+        - @Param: sql 执行sql
+        - @Param: logEnable 是否开启输出日志
+        - @return 查询结果
+        """
+        if not sql:
+            raise Exception("Execute method is missing a required parameter --> sql.")
+        try:
+            self.__logger.outSQL(sql, enable=logEnable)
+            conn = self.__pool.connection()
+            cur = conn.cursor()
+            cur.execute(sql)
+            result = cur.fetchall()
+            resultList = []
+            for r in result:
+                resultList.append(r)
+            return resultList
+        except Exception as e:
+            # 判断变量是否定义
+            if 'conn' in dir():
+                conn.rollback()
+            self.__logger.outMsg("Exceptions happened when executed sql:" + sql)
+            self.__logger.outMsg(e)
+            # raise Exception(e)  有异常，则抛出（此处不抛出，防止阻塞）
+        finally:
+            # 判断变量是否定义
+            if 'cur' in dir():
+                cur.close()
+
+            if 'conn' in dir():
+                conn.close()
+            pass
+
+    def __executeQuery(self, sql="", logEnable=True):
+        """
+        执行查询 SQL 语句：
+        - @Param: sql 执行sql
+        - @Param: logEnable 是否开启输出日志
+        - @return 查询结果
+        """
+        if not sql:
+            raise Exception("Execute method is missing a required parameter --> sql.")
+        try:
+            self.__logger.outSQL(sql, enable=logEnable)
+            conn = self.__pool.connection()
+            cur = conn.cursor()
+            cur.execute(sql)
+            resultTuple = cur.fetchall()
+            resultList = list(resultTuple)
+            objList = []
+
+            for result in resultList:
+                i = 0
+                obj = self.__obj()
+                for col in self.__columnList:
+                    prop = '_%s__%s' % (self.__className, col)
+                    setattr(obj, prop, result[i])
+                    i += 1
+                objList.append(obj)
+            if not objList:
+                return None
+            else:
+                return objList
+        except Exception as e:
+            conn.rollback()
+            self.__logger.outMsg("Exceptions happened when executed sql:" + sql)
+            self.__logger.outMsg(e)
+            # raise Exception(e)  有异常，则抛出（此处不抛出，防止阻塞）
+        finally:
+            cur.close()
+            conn.close()
+            pass
+
+    def __executeUpdate(self, sql=None, logEnable=True):
+        """
+        执行修改 SQL 语句：
+        - @Param: sql 执行sql
+        - @Param: logEnable 是否开启输出日志
+        - @return 影响行数
+        """
+        try:
+            self.__logger.outSQL(sql, enable=logEnable)
+            conn = self.__pool.connection()
+            cur = conn.cursor()
+            result_count = cur.execute(sql)
+            if "INSERT INTO"  in sql:
+                # 如果是插入语句，返回数据的primary key 值
+
+                # return cur.lastrowid()
+                # return conn.insert_id()
+                return cur._result.insert_id  # return primary key
+
+            else:
+                # 如果不是插入语句，则返回影响的数据条数
+                return result_count  # return affected_rows
+            pass
+        except Exception as e:
+            conn.rollback()
+            self.__logger.outMsg("Exceptions happened when executed sql:" + sql)
+            self.__logger.outMsg(e)
+            # raise Exception(e)  有异常，则抛出（此处不抛出，防止阻塞）
+            return 0
+        finally:
+            conn.commit()
+            cur.close()
+            conn.close()
+
+    def __init_params(self, obj):
+        """
+        初始化参数
+        - @Param：obj class 对象
+        """
+        self.__obj = obj
+        self.__className = obj.__name__
+        if (not PRIMARY_KEY_DICT_LIST) or len(PRIMARY_KEY_DICT_LIST) == 0:
+            self.__logger.outMsg("PRIMARY_KEY_DICT_LIST is empty.")
+
+        for i in PRIMARY_KEY_DICT_LIST:
+            if i.get("className") == self.__className:
+                self.__primaryKeyDict = i
+                self.__className = i["className"]
+                self.__tableName = i["tableName"]
+                break
+
+    def __init_primary_key_dict_list(self):
+        """
+        初始化数据库主键集合：
+        - pk_dict = {"className": {"tableName":tableName,"primaryKey":primaryKey,"auto_increment":auto_increment}}
+        """
+        global PRIMARY_KEY_DICT_LIST
+        sql = """
+            SELECT
+                t.TABLE_NAME,
+                c.COLUMN_NAME,
+                c.ORDINAL_POSITION
+            FROM
+                INFORMATION_SCHEMA.TABLE_CONSTRAINTS as t,
+                INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS c
+            WHERE t.TABLE_NAME = c.TABLE_NAME
+                AND t.TABLE_SCHEMA = "%s"
+                AND c.CONSTRAINT_SCHEMA = "%s"
+        """ % (self.__poolConfigDict.get("database"), self.__poolConfigDict.get("database"))
+        resultList = self.__execute(sql, logEnable=False)
+        if not resultList or len(resultList) == 0:
+            self.__logger.outMsg("initPrimaryKey is failed")
+        for result in resultList:
+            pk_dict = dict()
+            pk_dict["tableName"] = result[0]
+            pk_dict["primaryKey"] = result[1]
+            pk_dict["ordinalPosition"] = result[2]
+            pk_dict["className"] = self.__convertToClassName(result[0])
+            PRIMARY_KEY_DICT_LIST.append(pk_dict)
+        self.__logger.outMsg("initPrimaryKey is done.")
+
+    def __init_columns(self):
+        """
+        初始化表字段
+        """
+        # 每次调用该方法之前，需要先清掉__columnList,防止数据混乱
+        self.__columnList = []
+
+        sql = "SELECT column_name FROM  Information_schema.columns WHERE table_Name = '%s' AND TABLE_SCHEMA='%s'" % (
+        self.__tableName, self.__poolConfigDict["database"])
+        resultList = self.__execute(sql, logEnable=False)
+        for result in resultList:
+            self.__columnList.append(result[0])
+        self.__logger.outMsg("init_columns is done.  __columnList = %s" % (str(self.__columnList)))
+
+
+    def __convertToClassName(self, tableName):
+        """
+        表名转换方法：
+        - @Param: tableName 表名
+        - @return 转换后的类名
+        """
+        result = None
+        if tableName.startswith("t_md_"):
+            result = tableName.replace("t_md_", "").replace("_", "").lower()
+        elif tableName.startswith("t_ac_"):
+            result = tableName.replace("t_ac_", "").replace("_", "").lower()
+        elif tableName.startswith("t_"):
+            result = tableName.replace("t_", "").replace("_", "").lower()
+        elif "_" in tableName:
+            result = tableName.replace("_", "").lower()
+        else:
+            result = tableName
+        return result.capitalize()
